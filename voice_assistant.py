@@ -5,7 +5,7 @@ import speech_recognition as sr
 import pyttsx3
 import time
 
-from model_secrets import OLLAMA_URL, OLLAMA_MODEL
+from model_secrets import OLLAMA_URL, OLLAMA_MODEL, INSTRUCTIONS
 from utils.text_cleaner import clean_response
 
 class VoiceAssistant:
@@ -16,7 +16,10 @@ class VoiceAssistant:
 
         self.base_url = OLLAMA_URL.rstrip("/")
         self.model = OLLAMA_MODEL
-        self.history = []
+        self.history = [{
+            "role": "system",
+            "content": INSTRUCTIONS.strip()
+        }]
 
         self.tts_rate = 250
         self.tts_volume = 1.0
