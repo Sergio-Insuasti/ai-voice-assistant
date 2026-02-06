@@ -9,7 +9,6 @@ import threading
 from model_secrets import OLLAMA_URL, OLLAMA_MODEL, INSTRUCTIONS
 from utils.text_cleaner import clean_response
 
-
 class VoiceAssistant:
     def __init__(self):
         # Speech recognition setup
@@ -26,12 +25,11 @@ class VoiceAssistant:
         }]
 
         # TTS settings
-        self.tts_rate = 250
+        self.tts_rate = 300
         self.tts_volume = 1.0
 
         print("Voice Assistant initialized")
         print(f"Model: {self.model}")
-        print(f"Ollama: {self.base_url}")
 
         self.check_ollama()
         
@@ -51,7 +49,7 @@ class VoiceAssistant:
     def warmup_model(self):
         """
         Warm up the LLM by loading it into memory to reduce first-query latency.
-        Uses /api/chat so the *actual* chat path is primed.
+        Uses /api/chat so the actual chat path is primed.
         """
         warmup_complete = threading.Event()
         
@@ -98,14 +96,11 @@ class VoiceAssistant:
             bar = '█' * filled + '░' * (bar_length - filled)
             percent = int(progress * 100)
             print(
-                f'\rLoading model into memory... [{bar}] {percent}%',
+                f'\rLoading model into memory... [{bar}] {percent}%\n',
                 end='',
                 flush=True
             )
             time.sleep(0.05)
-        
-        bar = '█' * bar_length
-        print(f'\rLoading model... [{bar}] 100%', end='', flush=True)
         print()
         
         warmup_thread.join(timeout=1)
@@ -140,7 +135,6 @@ class VoiceAssistant:
 
         with sr.Microphone() as source:
             try:
-                print("Adjusting for ambient noise...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 print("Ready - speak now!")
                 
@@ -262,17 +256,3 @@ class VoiceAssistant:
                 break
 
             self.get_ai_response_streaming(user_text)
-
-
-def main():
-    assistant = VoiceAssistant()
-    try:
-        assistant.run()
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-    except Exception as e:
-        print("Fatal error:", e)
-
-
-if __name__ == "__main__":
-    main()
