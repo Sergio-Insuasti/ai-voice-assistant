@@ -48,49 +48,69 @@ class VoiceAssistant:
             print(e)
             sys.exit(1)
 
-    def show_loading_bar(self, duration=3.0):
-        """Show a loading bar animation"""
+    def warmup_model(self):
+        """
+        Warm up the LLM by loading it into memory to reduce first-query latency.
+        Uses /api/chat so the *actual* chat path is primed.
+        """
+        warmup_complete = threading.Event()
+        
+        def do_warmup():
+            warmup_payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": INSTRUCTIONS.strip()},
+                    {"role": "user", "content": "Hello"}
+                ],
+                "stream": False,
+                "options": {
+                    "num_predict": 1
+                }
+            }
+            
+            try:
+                requests.post(
+                    f"{self.base_url}/api/chat",
+                    json=warmup_payload,
+                    timeout=30
+                )
+            except Exception:
+                pass
+            
+            warmup_complete.set()
+        
+        warmup_thread = threading.Thread(target=do_warmup)
+        warmup_thread.start()
+        
         bar_length = 40
-        for i in range(bar_length + 1):
-            progress = i / bar_length
+        start_time = time.time()
+        max_duration = 15.0
+        
+        while not warmup_complete.is_set():
+            elapsed = time.time() - start_time
+            
+            if elapsed < max_duration:
+                progress = min(elapsed / max_duration, 0.99)
+            else:
+                progress = 0.99
+            
             filled = int(bar_length * progress)
             bar = '█' * filled + '░' * (bar_length - filled)
             percent = int(progress * 100)
-            print(f'\rWarming up model... [{bar}] {percent}%', end='', flush=True)
-            time.sleep(duration / bar_length)
-        print()  # New line after completion
-
-    def warmup_model(self):
-        """Warm up the LLM with a dummy request to reduce first-query latency"""
-        print("\nPreparing voice assistant...")
-        
-        # Start loading bar in background
-        loading_thread = threading.Thread(target=self.show_loading_bar, args=(3.0,))
-        loading_thread.start()
-        
-        # Send dummy warmup request
-        warmup_payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": "Hi"}],
-            "stream": False
-        }
-        
-        try:
-            requests.post(
-                f"{self.base_url}/api/chat",
-                json=warmup_payload,
-                timeout=30
+            print(
+                f'\rLoading model into memory... [{bar}] {percent}%',
+                end='',
+                flush=True
             )
-        except Exception:
-            pass  # Ignore errors, just warming up
+            time.sleep(0.05)
         
-        # Wait for loading bar to finish
-        loading_thread.join()
-        print("✓ Ready!\n")
-
-    # -------------------------
-    # Speak - Reinitialize TTS each time (fixes non-reciting issue)
-    # -------------------------
+        bar = '█' * bar_length
+        print(f'\rLoading model... [{bar}] 100%', end='', flush=True)
+        print()
+        
+        warmup_thread.join(timeout=1)
+        print("Model loaded!\n")
+        
 
     def speak(self, text: str):
         text = text.strip()
@@ -113,24 +133,20 @@ class VoiceAssistant:
         except Exception as e:
             print(f"TTS error: {e}")
 
-        # Small delay to let audio complete
         time.sleep(0.2)
 
     def listen(self) -> Optional[str]:
-        """Listen for speech with optimized timeout settings"""
-        print("\nListening...")
+        print("\nListening... (speak now)")
 
         with sr.Microphone() as source:
             try:
-                # Adjust for ambient noise first (critical for reliable detection)
-                # print("Adjusting for ambient noise...")
+                print("Adjusting for ambient noise...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                # print("Ready - speak now!")
+                print("Ready - speak now!")
                 
-                # Listen for speech
                 audio = self.recognizer.listen(
                     source,
-                    timeout=5,  # Give user time to start speaking
+                    timeout=5,
                     phrase_time_limit=10
                 )
                 
@@ -153,16 +169,12 @@ class VoiceAssistant:
                 return None
 
     def get_ai_response_streaming(self, user_text: str) -> str:
-        """
-        Get AI response with streaming for lower perceived latency
-        Speaks sentences as they arrive rather than waiting for full response
-        """
         self.history.append({"role": "user", "content": user_text})
 
         payload = {
             "model": self.model,
             "messages": self.history,
-            "stream": True  # Enable streaming
+            "stream": True
         }
 
         try:
@@ -179,7 +191,6 @@ class VoiceAssistant:
             full_response = ""
             sentence_buffer = ""
             
-            # Stream and speak sentence by sentence
             for line in r.iter_lines():
                 if not line:
                     continue
@@ -202,8 +213,6 @@ class VoiceAssistant:
                     full_response += content
                     sentence_buffer += content
                     
-                    # Detect sentence endings and speak immediately
-                    # This creates natural pauses and reduces perceived latency
                     if any(sentence_buffer.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';']):
                         sentence = clean_response(sentence_buffer.strip())
                         if sentence:
@@ -213,13 +222,11 @@ class VoiceAssistant:
                 except json.JSONDecodeError:
                     continue
             
-            # Speak any remaining text
             if sentence_buffer.strip():
                 sentence = clean_response(sentence_buffer.strip())
                 if sentence:
                     self.speak(sentence)
             
-            # Clean and store full response
             cleaned = clean_response(full_response)
             self.history.append({"role": "assistant", "content": cleaned})
             return cleaned
@@ -232,7 +239,7 @@ class VoiceAssistant:
 
     def run(self):
         self.speak("Hello! Anything I can help you with today?")
-        time.sleep(0.5)  # Brief pause after greeting
+        time.sleep(0.5)
 
         consecutive_failures = 0
         
@@ -241,7 +248,6 @@ class VoiceAssistant:
             
             if user_text is None:
                 consecutive_failures += 1
-                # After 2 failed attempts, give a helpful prompt
                 if consecutive_failures == 2:
                     self.speak("I'm ready when you are. Just speak your question.")
                 elif consecutive_failures >= 5:
