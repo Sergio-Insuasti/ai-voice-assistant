@@ -1,13 +1,14 @@
-import sys
 import requests
 from typing import Optional
 import speech_recognition as sr
 import pyttsx3
-import time
-import threading
 
 from model_secrets import OLLAMA_URL, OLLAMA_MODEL, INSTRUCTIONS
 from utils.text_cleaner import clean_response
+from utils.model_utils import (
+    check_connection,
+    warmup_model
+)
 
 class VoiceAssistant:
     def __init__(self):
@@ -31,81 +32,11 @@ class VoiceAssistant:
         print("Voice Assistant initialized")
         print(f"Model: {self.model}")
 
-        self.check_ollama()
+        check_connection(self.base_url)
         
         # Warm up the model with loading bar
-        self.warmup_model()
+        warmup_model(self.model, self.base_url)
 
-    def check_ollama(self):
-        try:
-            r = requests.get(f"{self.base_url}/api/tags", timeout=5)
-            r.raise_for_status()
-            print("Connected to Ollama")
-        except Exception as e:
-            print("Ollama not reachable")
-            print(e)
-            sys.exit(1)
-
-    def warmup_model(self):
-        """
-        Warm up the LLM by loading it into memory to reduce first-query latency.
-        Uses /api/chat so the actual chat path is primed.
-        """
-        warmup_complete = threading.Event()
-        
-        def do_warmup():
-            warmup_payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": INSTRUCTIONS.strip()},
-                    {"role": "user", "content": "Hello"}
-                ],
-                "stream": False,
-                "options": {
-                    "num_predict": 1
-                }
-            }
-            
-            try:
-                requests.post(
-                    f"{self.base_url}/api/chat",
-                    json=warmup_payload,
-                    timeout=30
-                )
-            except Exception:
-                pass
-            
-            warmup_complete.set()
-        
-        warmup_thread = threading.Thread(target=do_warmup)
-        warmup_thread.start()
-        
-        bar_length = 40
-        start_time = time.time()
-        max_duration = 15.0
-        
-        while not warmup_complete.is_set():
-            elapsed = time.time() - start_time
-            
-            if elapsed < max_duration:
-                progress = min(elapsed / max_duration, 0.99)
-            else:
-                progress = 0.99
-            
-            filled = int(bar_length * progress)
-            bar = '█' * filled + '░' * (bar_length - filled)
-            percent = int(progress * 100)
-            print(
-                f'\rLoading model into memory... [{bar}] {percent}%\n',
-                end='',
-                flush=True
-            )
-            time.sleep(0.05)
-        print()
-        
-        warmup_thread.join(timeout=1)
-        print("Model loaded!\n")
-        
 
     def speak(self, text: str):
         text = text.strip()
@@ -128,20 +59,17 @@ class VoiceAssistant:
         except Exception as e:
             print(f"TTS error: {e}")
 
-        time.sleep(0.2)
 
     def listen(self) -> Optional[str]:
-        print("\nListening... (speak now)")
-
         with sr.Microphone() as source:
             try:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                print("Ready - speak now!")
+                print("Microphone is ready - speak now!")
                 
                 audio = self.recognizer.listen(
                     source,
                     timeout=5,
-                    phrase_time_limit=10
+                    phrase_time_limit=5
                 )
                 
                 print("Processing speech...")
@@ -162,7 +90,7 @@ class VoiceAssistant:
                 print(f"Unexpected error in listen: {e}")
                 return None
 
-    def get_ai_response_streaming(self, user_text: str) -> str:
+    def dictate_ai_response(self, user_text: str) -> str:
         self.history.append({"role": "user", "content": user_text})
 
         payload = {
@@ -233,7 +161,6 @@ class VoiceAssistant:
 
     def run(self):
         self.speak("Hello! Anything I can help you with today?")
-        time.sleep(0.5)
 
         consecutive_failures = 0
         
@@ -255,4 +182,4 @@ class VoiceAssistant:
                 self.speak("Goodbye.")
                 break
 
-            self.get_ai_response_streaming(user_text)
+            self.dictate_ai_response(user_text)
