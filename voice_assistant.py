@@ -84,10 +84,13 @@ class VoiceAssistant:
 
             except sr.WaitTimeoutError:
                 print("No speech detected")
+                self.speak("What's on your mind? Make sure to tell me!")
             except sr.UnknownValueError:
                 print("Could not understand")
+                self.speak("I'm sorry, I didn't quite get that.")
             except sr.RequestError as e:
                 print(f"Speech recognition error: {e}")
+                self.speak("I'm sorry, I didn't quite get that.")
 
         return None
 
