@@ -1,5 +1,5 @@
 
-from voice_assistant import VoiceAssistant
+from VoiceAssistant import VoiceAssistant
 def main():
     assistant = VoiceAssistant()
     try:
