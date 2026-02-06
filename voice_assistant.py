@@ -1,25 +1,51 @@
 import requests
-from secrets import OLLAMA_MODEL, OLLAMA_URL
-from utils.text_cleaner import clean_response
+import json
+from secrets import OLLAMA_URL, OLLAMA_MODEL
 
-def ask_ollama(prompt: str) -> str:
+def ask_ollama_stream(prompt: str) -> str:
+    """
+    Synchronous streaming call to Ollama.
+    Tokens are yielded incrementally to reduce perceived latency.
+    """
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
-        "stream": False
+        "stream": True,
+        "options": {
+            "num_predict": 96,
+            "temperature": 0.6
+        }
     }
+
     response = requests.post(
         OLLAMA_URL,
         json=payload,
+        stream=True,
         timeout=120
     )
-    
     response.raise_for_status()
-    
-    return clean_response(response.json()["response"].strip())
+
+    full_response = []
+
+    for line in response.iter_lines():
+        if not line:
+            continue
+
+        data = json.loads(line.decode("utf-8"))
+
+        if "response" in data:
+            token = data["response"]
+            print(token, end="", flush=True)
+            full_response.append(token)
+
+        if data.get("done", False):
+            break
+
+    print()
+    return "".join(full_response).strip()
 
 def main():
-    print("Ollama assistant ready. Type your message.")
+    print("Ollama assistant ready (streaming).")
     print("Type 'exit' or 'quit' to leave.\n")
 
     while True:
@@ -30,13 +56,13 @@ def main():
             break
 
         try:
-            reply = ask_ollama(user_input)
-            print(f"Assistant: {reply}\n")
+            print("Assistant: ", end="", flush=True)
+            ask_ollama_stream(user_input)
+            print()
 
         except Exception as e:
-            print("Error:", e)
+            print("\nError:", e)
             print("Assistant: Something went wrong. Try again.\n")
 
 if __name__ == "__main__":
     main()
-    
