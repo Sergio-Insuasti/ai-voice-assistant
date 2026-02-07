@@ -1,7 +1,6 @@
 import requests
 from typing import Optional
 import speech_recognition as sr
-import pyttsx3
 
 from model_secrets import OLLAMA_URL, OLLAMA_MODEL, INSTRUCTIONS
 from utils.text_cleaner import clean_response
@@ -9,6 +8,7 @@ from utils.model_utils import (
     check_connection,
     warmup_model
 )
+from tts_model import speak
 
 class VoiceAssistant:
     def __init__(self):
@@ -25,10 +25,6 @@ class VoiceAssistant:
             "content": INSTRUCTIONS.strip()
         }]
 
-        # TTS settings
-        self.tts_rate = 300
-        self.tts_volume = 1.0
-
         print("Voice Assistant initialized")
         print(f"Model: {self.model}")
 
@@ -36,28 +32,6 @@ class VoiceAssistant:
         
         # Warm up the model with loading bar
         warmup_model(self.model, self.base_url)
-
-
-    def speak(self, text: str):
-        text = text.strip()
-        if not text:
-            return
-
-        print(f"Assistant: {text}")
-
-        try:
-            engine = pyttsx3.init()
-            engine.setProperty("rate", self.tts_rate)
-            engine.setProperty("volume", self.tts_volume)
-            
-            engine.say(text)
-            engine.runAndWait()
-            
-            engine.stop()
-            del engine
-            
-        except Exception as e:
-            print(f"TTS error: {e}")
 
 
     def listen(self) -> Optional[str]:
@@ -101,7 +75,7 @@ class VoiceAssistant:
 
         try:
             print("Thinking...")
-            
+
             r = requests.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
@@ -111,56 +85,45 @@ class VoiceAssistant:
             r.raise_for_status()
 
             full_response = ""
-            sentence_buffer = ""
-            
+
             for line in r.iter_lines():
                 if not line:
                     continue
-                
+
                 try:
-                    data = line.decode('utf-8')
-                    if data.startswith('data: '):
+                    data = line.decode("utf-8")
+                    if data.startswith("data: "):
                         data = data[6:]
-                    
+
                     import json
                     chunk = json.loads(data)
-                    
+
                     if chunk.get("done"):
                         break
-                    
+
                     content = chunk.get("message", {}).get("content", "")
-                    if not content:
-                        continue
-                    
-                    full_response += content
-                    sentence_buffer += content
-                    
-                    if any(sentence_buffer.rstrip().endswith(p) for p in ['.', '!', '?', ':', ';']):
-                        sentence = clean_response(sentence_buffer.strip())
-                        if sentence:
-                            self.speak(sentence)
-                        sentence_buffer = ""
-                
+                    if content:
+                        full_response += content
+
                 except json.JSONDecodeError:
                     continue
-            
-            if sentence_buffer.strip():
-                sentence = clean_response(sentence_buffer.strip())
-                if sentence:
-                    self.speak(sentence)
-            
+
             cleaned = clean_response(full_response)
+
+            speak(cleaned)
+
             self.history.append({"role": "assistant", "content": cleaned})
             return cleaned
 
         except Exception as e:
             print("LLM error:", e)
             error_msg = "Sorry, something went wrong."
-            self.speak(error_msg)
+            speak(error_msg)
             return error_msg
 
+
     def run(self):
-        self.speak("Hello! Anything I can help you with today?")
+        speak("Hello! Anything I can help you with today?")
 
         consecutive_failures = 0
         
@@ -170,16 +133,16 @@ class VoiceAssistant:
             if user_text is None:
                 consecutive_failures += 1
                 if consecutive_failures == 2:
-                    self.speak("I'm ready when you are. Just speak your question.")
+                    speak("I'm ready when you are. Just speak your question.")
                 elif consecutive_failures >= 5:
-                    self.speak("Still here if you need me.")
+                    speak("Still here if you need me.")
                     consecutive_failures = 0
                 continue
             
             consecutive_failures = 0
 
             if user_text.lower() in {"exit", "quit", "stop", "goodbye", "bye"}:
-                self.speak("Goodbye.")
+                speak("Goodbye.")
                 break
 
             self.dictate_ai_response(user_text)
